@@ -1,10 +1,12 @@
-name: Android CI
+name: Build and Release Android APK
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main ]
+    tags:
+      - 'v*'
   pull_request:
-    branches: [ main, master ]
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
@@ -20,34 +22,95 @@ jobs:
       with:
         java-version: '17'
         distribution: 'temurin'
-        cache: gradle
-        
+    
+    - name: Setup Gradle
+      uses: gradle/actions/setup-gradle@v3
+    
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
-        
-    - name: Grant execute permission for gradlew
-      run: chmod +x gradlew
-      
-    - name: Create gradlew if not exists
-      run: |
-        if [ ! -f gradlew ]; then
-          gradle wrapper
-        fi
-      
+    
     - name: Build Debug APK
-      run: ./gradlew assembleDebug
-      
+      run: gradle assembleDebug
+    
+    - name: Build Release APK
+      run: gradle assembleRelease
+    
+    - name: Sign Release APK
+      uses: r0adkll/sign-android-release@v1
+      id: sign_app
+      with:
+        releaseDirectory: app/build/outputs/apk/release
+        signingKeyBase64: ${{ secrets.SIGNING_KEY }}
+        alias: ${{ secrets.KEY_ALIAS }}
+        keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
+        keyPassword: ${{ secrets.KEY_PASSWORD }}
+      env:
+        BUILD_TOOLS_VERSION: "34.0.0"
+      continue-on-error: true
+    
+    - name: Rename APKs
+      run: |
+        mkdir -p artifacts
+        cp app/build/outputs/apk/debug/app-debug.apk artifacts/RoyalOrderSorter-debug.apk
+        if [ -f "${{ steps.sign_app.outputs.signedReleaseFile }}" ]; then
+          cp "${{ steps.sign_app.outputs.signedReleaseFile }}" artifacts/RoyalOrderSorter-release-signed.apk
+        else
+          cp app/build/outputs/apk/release/app-release-unsigned.apk artifacts/RoyalOrderSorter-release-unsigned.apk
+        fi
+    
     - name: Upload Debug APK
       uses: actions/upload-artifact@v4
       with:
         name: RoyalOrderSorter-debug
-        path: app/build/outputs/apk/debug/app-debug.apk
-        
-    - name: Build Release APK (unsigned)
-      run: ./gradlew assembleRelease
-      
+        path: artifacts/RoyalOrderSorter-debug.apk
+    
     - name: Upload Release APK
       uses: actions/upload-artifact@v4
       with:
-        name: RoyalOrderSorter-release-unsigned
-        path: app/build/outputs/apk/release/app-release-unsigned.apk
+        name: RoyalOrderSorter-release
+        path: artifacts/RoyalOrderSorter-release*.apk
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    
+    permissions:
+      contents: write
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+    
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          artifacts/RoyalOrderSorter-debug/RoyalOrderSorter-debug.apk
+          artifacts/RoyalOrderSorter-release/RoyalOrderSorter-release*.apk
+          web/RoyalOrderSorter.html
+        body: |
+          ## Royal Order Sorter ${{ github.ref_name }}
+          
+          ### Downloads
+          - **RoyalOrderSorter-debug.apk** - Debug build (for testing)
+          - **RoyalOrderSorter-release.apk** - Release build (signed)
+          - **RoyalOrderSorter.html** - Web version (open in any browser)
+          
+          ### Installation
+          1. Download the APK file
+          2. Enable "Install from unknown sources" in Android settings
+          3. Open the APK to install
+          
+          ### Requirements
+          - Android 7.0 (API 24) or higher
+          - Internet connection for initial AI model download (~30MB)
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
