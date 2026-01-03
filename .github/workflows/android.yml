@@ -23,19 +23,20 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
     
-    - name: Setup Gradle
-      uses: gradle/actions/setup-gradle@v3
-      with:
-        gradle-version: 8.0
-    
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
     
+    - name: Download and Setup Gradle
+      run: |
+        wget -q https://services.gradle.org/distributions/gradle-8.0.2-bin.zip
+        unzip -q gradle-8.0.2-bin.zip
+        echo "$PWD/gradle-8.0.2/bin" >> $GITHUB_PATH
+    
     - name: Build Debug APK
-      run: gradle assembleDebug --no-daemon
+      run: gradle-8.0.2/bin/gradle assembleDebug --no-daemon
     
     - name: Build Release APK
-      run: gradle assembleRelease --no-daemon
+      run: gradle-8.0.2/bin/gradle assembleRelease --no-daemon
     
     - name: Sign Release APK
       uses: r0adkll/sign-android-release@v1
