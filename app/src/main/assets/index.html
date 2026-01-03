@@ -1,0 +1,491 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Royal Order Sorter (AI Only)</title>
+    
+    <script src="https://unpkg.com/compromise"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <script src="https://unpkg.com/docx@7.1.0/build/index.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+    <style>
+        * { box-sizing: border-box; }
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            max-width: 100%; 
+            margin: 0;
+            padding: 15px;
+            background: #f4f4f9; 
+            color: #333; 
+            padding-bottom: 80px; 
+        }
+        h1 { color: #2c3e50; margin: 0; font-size: 1.5em; }
+        
+        /* Header */
+        .header-container { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; flex-wrap: wrap; gap: 10px; }
+        
+        .info-btn { background-color: #8e44ad; color: white; border: none; border-radius: 50%; width: 30px; height: 30px; font-weight: bold; font-family: serif; cursor: pointer; font-size: 18px; margin-left: 5px; }
+
+        /* Status Bar (AI Loading) */
+        #ai-status { display: flex; padding: 10px; background: #fff3cd; border: 1px solid #ffeeba; color: #856404; border-radius: 4px; margin-bottom: 15px; align-items: center; gap: 10px; flex-wrap: wrap; }
+        .spinner { border: 3px solid #f3f3f3; border-top: 3px solid #3498db; border-radius: 50%; width: 16px; height: 16px; animation: spin 1s linear infinite; flex-shrink: 0; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        .card { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 15px; border-top: 4px solid #3498db; }
+        textarea { width: 100%; height: 120px; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 16px; font-family: inherit; resize: vertical; }
+        
+        .sentence-block { background: #fafafa; padding: 12px; margin-bottom: 15px; border: 1px solid #e0e0e0; border-radius: 6px; }
+        .word-container { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; align-items: flex-end; }
+        
+        .word-row { display: flex; flex-direction: column; background: #fff; padding: 6px; border: 1px solid #ccc; border-radius: 4px; min-width: 100px; }
+        
+        /* Category Colors */
+        .is-adj { border-left: 4px solid #3498db; }
+        .is-noun { border-left: 4px solid #16a085; background: #e8f8f5; }
+        .is-verb { border-left: 4px solid #d35400; background: #fdf2e9; }
+        .is-adv { border-left: 4px solid #9b59b6; background: #f4ecf7; }
+        .is-other { border-left: 4px solid #95a5a6; background: #ecf0f1; }
+
+        .word-label { font-weight: bold; font-size: 14px; margin-bottom: 4px; }
+        .source-tag { font-size: 0.65em; color: #7f8c8d; text-transform: uppercase; letter-spacing: 0.5px; }
+        
+        select { font-size: 0.85em; padding: 4px; width: 100%; border: 1px solid #ddd; border-radius: 4px; background: white; }
+        
+        button.action-btn { 
+            padding: 12px 16px; 
+            background: #3498db; 
+            color: white; 
+            border: none; 
+            border-radius: 4px; 
+            cursor: pointer; 
+            margin-right: 8px; 
+            margin-bottom: 8px;
+            font-size: 14px; 
+            touch-action: manipulation;
+        }
+        button.action-btn:disabled { background: #bdc3c7; cursor: not-allowed; }
+        button.action-btn:active:not(:disabled) { background: #2980b9; transform: scale(0.98); }
+        button.secondary { background: #27ae60; }
+        button.secondary:active { background: #219150; }
+        button.export-btn { background: #e67e22; padding: 10px 14px; font-size: 0.9em; }
+
+        #finalResult { background: #2c3e50; color: #ecf0f1; padding: 15px; border-radius: 5px; white-space: pre-wrap; display: none; font-family: monospace; font-size: 1em; word-break: break-word; }
+        
+        footer { margin-top: 30px; padding-top: 15px; border-top: 1px solid #ddd; text-align: center; font-size: 0.85em; color: #7f8c8d; }
+        footer a { color: #3498db; text-decoration: none; font-weight: bold; }
+
+        /* Modal */
+        .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); backdrop-filter: blur(2px); overflow: auto; }
+        .modal-content { background-color: #fefefe; margin: 3% auto; padding: 15px 20px; border: 1px solid #888; border-radius: 8px; width: 95%; max-width: 800px; max-height: 90vh; overflow-y: auto; }
+        .close { color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer; padding: 0 10px; }
+        .modal-table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.9em; }
+        .modal-table th, .modal-table td { border-bottom: 1px solid #ddd; padding: 8px 6px; text-align: left; }
+        .modal-table th { background-color: #f2f2f2; }
+        
+        h2 { font-size: 1.2em; margin-top: 0; }
+        h3 { font-size: 1em; }
+        
+        .export-container { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 15px; }
+    </style>
+</head>
+<body>
+
+    <div class="header-container">
+        <h1>Royal Order Sorter</h1>
+        <div>
+            <button class="info-btn" onclick="openModal('info')">i</button>
+            <button class="info-btn" onclick="openModal('license')" style="background:#2c3e50; font-family:sans-serif; font-size:12px;">Lic</button>
+        </div>
+    </div>
+
+    <div id="ai-status">
+        <div class="spinner"></div>
+        <span id="ai-msg">Initializing AI... (Downloading model on first run)</span>
+    </div>
+
+    <div class="card">
+        <h2>1. Enter Text</h2>
+        <p>Enter your sentences. The AI will detect adjectives/adverbs and their types automatically.</p>
+        <textarea id="inputString" placeholder="Example:
+She refused to wear the leather pink new small ugly boots.
+He drove his German blue fast car often."></textarea>
+        <button id="analyzeBtn" class="action-btn" onclick="analyzeInput()" disabled>Loading AI...</button>
+    </div>
+
+    <div class="card" id="stagingSection" style="display:none;">
+        <h2>2. Review & Reorder</h2>
+        <div id="stagingArea"></div>
+        <br>
+        <button class="action-btn secondary" onclick="reorderAll()">Reorder Sentences</button>
+        <h3>Results:</h3>
+        <div id="finalResult"></div>
+        <div class="export-container">
+            <button class="export-btn action-btn" onclick="exportData('txt')">TXT</button>
+            <button class="export-btn action-btn" onclick="exportData('docx')">DOCX</button>
+            <button class="export-btn action-btn" onclick="exportData('pdf')">PDF</button>
+        </div>
+    </div>
+
+    <footer>
+        <div class="credits">
+            <strong>Concept by Paul Pruitt</strong><br>
+            Powered by <a href="https://huggingface.co/docs/transformers.js" target="_blank">Transformers.js</a> & <a href="https://github.com/spencermountain/compromise" target="_blank">Compromise</a>.
+        </div>
+    </footer>
+
+    <div id="infoModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('info')">&times;</span>
+            <h2>Categories & Ordering</h2>
+            <p>This tool sorts words based on the following hierarchy:</p>
+            <table class="modal-table">
+                <thead><tr><th>Order</th><th>Category</th><th>Examples</th></tr></thead>
+                <tbody>
+                    <tr><td>1-9</td><td>Adjectives</td><td>Opinion, Size, Age, Shape, Color, Origin, Material, Purpose</td></tr>
+                    <tr><td>10</td><td>Uncategorized</td><td>Limiters (true, main)</td></tr>
+                    <tr><td>11</td><td>Adverb: Manner</td><td>quickly, loudly</td></tr>
+                    <tr><td>12</td><td>Adverb: Place</td><td>here, outside</td></tr>
+                    <tr><td>13</td><td>Adverb: Frequency</td><td>often, always</td></tr>
+                    <tr><td>14</td><td>Adverb: Time</td><td>yesterday, now</td></tr>
+                    <tr><td>15</td><td>Adverb: Purpose</td><td>intentionally</td></tr>
+                    <tr><td>Anchor</td><td>Verb / Other</td><td>Stays in place</td></tr>
+                    <tr><td>Target</td><td>Noun</td><td>Sorts to end of cluster</td></tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div id="licenseModal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeModal('license')">&times;</span>
+            <h2>AI & License Information</h2>
+            <p>This tool uses <strong>Client-Side AI</strong>. No data is sent to any server.</p>
+            
+            <h3>The Model</h3>
+            <p>We use <strong>Xenova/all-MiniLM-L6-v2</strong> via the Transformers.js library.</p>
+            <ul>
+                <li><strong>Task:</strong> Feature Extraction (Semantic Similarity)</li>
+                <li><strong>License:</strong> <a href="https://www.apache.org/licenses/LICENSE-2.0" target="_blank">Apache 2.0</a></li>
+                <li><strong>Source:</strong> Hugging Face Hub (Xenova version)</li>
+            </ul>
+
+            <h3>The Libraries</h3>
+            <ul>
+                <li><strong>Transformers.js:</strong> Apache 2.0 License</li>
+                <li><strong>Compromise (NLP):</strong> MIT License</li>
+            </ul>
+        </div>
+    </div>
+
+<script type="module">
+    import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.14.0';
+    
+    // Disable local model checking since we are running in browser
+    env.allowLocalModels = false;
+    env.useBrowserCache = true;
+
+    // Initialize AI automatically on load
+    window.initAI = async function() {
+        const statusBar = document.getElementById('ai-status');
+        const statusMsg = document.getElementById('ai-msg');
+        const analyzeBtn = document.getElementById('analyzeBtn');
+
+        try {
+            // Load the feature extraction pipeline
+            window.extractor = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2', {
+                quantized: true 
+            });
+            
+            // Pre-calculate embeddings for our category definitions
+            statusMsg.innerText = "Calibrating Categories...";
+            window.categoryEmbeddings = {};
+            
+            const definitions = window.AI_DEFINITIONS; 
+            for (const [cat, text] of Object.entries(definitions)) {
+                 const output = await window.extractor(text, { pooling: 'mean', normalize: true });
+                 window.categoryEmbeddings[cat] = output.data; 
+            }
+
+            statusBar.style.background = '#d4edda';
+            statusBar.style.borderColor = '#c3e6cb';
+            statusBar.style.color = '#155724';
+            statusMsg.innerText = "AI Ready! (Transformers.js)";
+            setTimeout(() => { statusBar.style.display = 'none'; }, 2000);
+            
+            window.aiReady = true;
+            analyzeBtn.disabled = false;
+            analyzeBtn.innerText = "Analyze Text";
+
+        } catch (err) {
+            console.error(err);
+            statusMsg.innerText = "Error loading AI: " + err.message;
+            statusBar.style.backgroundColor = "#f8d7da";
+            statusBar.style.color = "#721c24";
+        }
+    };
+
+    window.getEmbeddings = async function(textList) {
+        if (!window.extractor) return null;
+        const results = [];
+        for(const text of textList) {
+            const out = await window.extractor(text, { pooling: 'mean', normalize: true });
+            results.push(out.data);
+        }
+        return results;
+    };
+
+    // Kickoff
+    window.initAI();
+</script>
+
+<script>
+    // ==========================================
+    // 1. CONFIGURATION & CATEGORIES
+    // ==========================================
+    
+    const CATEGORIES = [
+        "Opinion", "Size", "Physical Quality", "Age", "Shape", "Color", 
+        "Origin", "Material", "Purpose", "Uncategorized", 
+        "Adverb: Manner", "Adverb: Place", "Adverb: Frequency", "Adverb: Time", "Adverb: Purpose",
+        "Verb", "Noun", "Other parts of speech"
+    ];
+
+    window.aiReady = false;
+
+    // ==========================================
+    // 2. AI DEFINITIONS (Anchors for Cosine Sim)
+    // ==========================================
+    
+    window.AI_DEFINITIONS = {
+        "Opinion": "beautiful lovely ugly amazing nice bad good terrible strange funny excellent",
+        "Size": "big small tiny huge large little enormous short tall giant microscopic",
+        "Physical Quality": "rough smooth hard soft heavy light wet dry sticky sharp hot cold fast slow",
+        "Age": "old new young ancient modern recent antique fresh prehistoric futuristic",
+        "Shape": "round square flat rectangular triangular oval spherical",
+        "Color": "red blue green white black yellow dark pale pink purple grey orange violet teal",
+        "Origin": "french american chinese southern northern lunar solar alien german italian african persian",
+        "Material": "wooden metal plastic silk leather stone iron steel paper wool glass gold silver marble",
+        "Purpose": "sleeping cooking frying racing cutting cleaning writing",
+        "Adverb: Manner": "quickly slowly happily sadly carefully fast hard well loudly soundly elegantly",
+        "Adverb: Place": "here there outside inside upstairs nearby everywhere somewhere away",
+        "Adverb: Frequency": "always never often sometimes daily weekly rarely usually",
+        "Adverb: Time": "now then yesterday tomorrow today recently late early",
+        "Adverb: Purpose": "intentionally purposefully"
+    };
+
+    // ==========================================
+    // 3. MAIN LOGIC
+    // ==========================================
+
+    function cosineSimilarity(vecA, vecB) {
+        let dot = 0.0, normA = 0.0, normB = 0.0;
+        for (let i = 0; i < vecA.length; i++) {
+            dot += vecA[i] * vecB[i];
+            normA += vecA[i] * vecA[i];
+            normB += vecB[i] * vecB[i];
+        }
+        return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+    }
+
+    async function analyzeInput() {
+        const text = document.getElementById('inputString').value;
+        if (!text.trim()) return;
+        if (!window.aiReady) return alert("AI is still loading. Please wait...");
+
+        const stagingArea = document.getElementById('stagingArea');
+        stagingArea.innerHTML = "";
+        document.getElementById('stagingSection').style.display = 'block';
+        document.getElementById('finalResult').style.display = 'none';
+
+        const sentences = text.split(/[\r\n]+/).filter(s => s.trim().length > 0);
+
+        // UI Feedback
+        const btn = document.getElementById('analyzeBtn');
+        const originalText = btn.innerText;
+        btn.innerText = "Processing...";
+        btn.disabled = true;
+
+        for (let idx = 0; idx < sentences.length; idx++) {
+            let sentText = sentences[idx];
+            
+            // 1. NLP Tokenize
+            let doc = nlp(sentText);
+            let terms = doc.json()[0].terms;
+
+            // 2. Prepare Block UI
+            let block = document.createElement('div');
+            block.className = "sentence-block";
+            let title = document.createElement('div');
+            title.innerHTML = `<strong>Line ${idx + 1}</strong>`;
+            block.appendChild(title);
+            let container = document.createElement('div');
+            container.className = "word-container";
+
+            // 3. AI Calculation
+            const wordList = terms.map(t => t.normal);
+            let wordVectors = await window.getEmbeddings(wordList);
+
+            // 4. Process Terms
+            for (let i = 0; i < terms.length; i++) {
+                let term = terms[i];
+                let word = term.text;
+                let category = "Other parts of speech";
+                let source = "Default";
+
+                // --- AI LOGIC ---
+                if (term.tags.includes("Noun") && !term.tags.includes("Adjective")) {
+                    category = "Noun"; source = "NLP (POS)";
+                } else if (term.tags.includes("Verb") && !term.tags.includes("Adjective")) {
+                    category = "Verb"; source = "NLP (POS)";
+                } else if (wordVectors && window.categoryEmbeddings) {
+                    const vec = wordVectors[i];
+                    let maxScore = -1;
+                    let bestCat = "Uncategorized";
+
+                    for (const [catName, catVec] of Object.entries(window.categoryEmbeddings)) {
+                        const score = cosineSimilarity(vec, catVec);
+                        if (score > maxScore) {
+                            maxScore = score;
+                            bestCat = catName;
+                        }
+                    }
+                    category = bestCat;
+                    source = `AI (${Math.round(maxScore*100)}%)`;
+                }
+
+                // Render
+                let row = document.createElement('div');
+                row.className = "word-row";
+                styleRow(row, category);
+
+                let lbl = document.createElement('div');
+                lbl.className = "word-label";
+                lbl.innerText = word;
+                row.appendChild(lbl);
+
+                let srcTag = document.createElement('div');
+                srcTag.className = "source-tag";
+                srcTag.innerText = source;
+                row.appendChild(srcTag);
+
+                let sel = document.createElement('select');
+                sel.addEventListener('change', (e) => styleRow(row, e.target.value));
+                CATEGORIES.forEach(cat => {
+                    let opt = document.createElement('option');
+                    opt.value = cat;
+                    opt.innerText = cat;
+                    if (cat === category) opt.selected = true;
+                    sel.appendChild(opt);
+                });
+                row.appendChild(sel);
+                container.appendChild(row);
+            }
+            
+            block.appendChild(container);
+            stagingArea.appendChild(block);
+        }
+        
+        btn.innerText = originalText;
+        btn.disabled = false;
+    }
+
+    function reorderAll() {
+        const blocks = document.querySelectorAll('.sentence-block');
+        let results = [];
+
+        blocks.forEach(block => {
+            let items = [];
+            block.querySelectorAll('.word-row').forEach(row => {
+                items.push({
+                    word: row.querySelector('.word-label').innerText,
+                    cat: row.querySelector('select').value
+                });
+            });
+
+            let finalLine = [];
+            let cluster = [];
+
+            // Sort Hierarchy
+            const getRank = (cat) => {
+                let idx = CATEGORIES.indexOf(cat);
+                if (cat === "Noun") return 99; 
+                if (idx === -1) return 100;
+                return idx;
+            };
+
+            const isAnchor = (cat) => {
+                return cat === "Verb" || cat === "Other parts of speech";
+            };
+
+            items.forEach(item => {
+                if (!isAnchor(item.cat)) {
+                    cluster.push(item);
+                } else {
+                    if (cluster.length > 0) {
+                        cluster.sort((a, b) => getRank(a.cat) - getRank(b.cat));
+                        finalLine.push(...cluster.map(x => x.word));
+                        cluster = [];
+                    }
+                    finalLine.push(item.word);
+                }
+            });
+            if (cluster.length > 0) {
+                cluster.sort((a, b) => getRank(a.cat) - getRank(b.cat));
+                finalLine.push(...cluster.map(x => x.word));
+            }
+
+            // Cleanup Punctuation
+            let str = finalLine.join(" ");
+            str = str.replace(/\s+([.,!?;:])/g, '$1');
+            results.push(str);
+        });
+
+        document.getElementById('finalResult').innerText = results.join("\n");
+        document.getElementById('finalResult').style.display = 'block';
+    }
+
+    function styleRow(div, cat) {
+        div.className = "word-row";
+        div.classList.remove('is-adj', 'is-noun', 'is-verb', 'is-adv', 'is-other');
+        
+        if (cat.includes("Adverb")) div.classList.add('is-adv');
+        else if (cat === "Noun") div.classList.add('is-noun');
+        else if (cat === "Verb") div.classList.add('is-verb');
+        else if (cat === "Other parts of speech") div.classList.add('is-other');
+        else div.classList.add('is-adj'); 
+    }
+
+    function exportData(fmt) {
+        const text = document.getElementById('finalResult').innerText;
+        if(!text) return alert("No results.");
+        const blob = new Blob([text], {type: "text/plain;charset=utf-8"});
+        if(fmt==='txt') saveAs(blob, "results.txt");
+        if(fmt==='docx') {
+            const { Document, Packer, Paragraph, TextRun } = docx;
+            const doc = new Document({ sections: [{ children: [new Paragraph({ children: [new TextRun(text)] })] }] });
+            Packer.toBlob(doc).then(b => saveAs(b, "results.docx"));
+        }
+        if(fmt==='pdf') {
+            const { jsPDF } = window.jspdf;
+            const doc = new jsPDF();
+            doc.text(text, 10, 10);
+            doc.save("results.pdf");
+        }
+    }
+
+    // Modal Handling
+    function openModal(id) { 
+        document.getElementById(id === 'info' ? 'infoModal' : 'licenseModal').style.display = "block"; 
+    }
+    function closeModal(id) { 
+        document.getElementById(id === 'info' ? 'infoModal' : 'licenseModal').style.display = "none"; 
+    }
+    window.onclick = function(e) { 
+        if(e.target.classList.contains('modal')) e.target.style.display = "none"; 
+    }
+
+</script>
+</body>
+</html>
