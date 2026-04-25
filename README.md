@@ -1,5 +1,10 @@
 # Royal Order Sorter
 
+<!--PAGES_LINK_BANNER-->
+> 🌐 **Live page:** [https://socrtwo.github.io/RoyalOrderSorter/](https://socrtwo.github.io/RoyalOrderSorter/)  
+> 📦 **Releases:** [github.com/socrtwo/RoyalOrderSorter/releases](https://github.com/socrtwo/RoyalOrderSorter/releases)
+<!--/PAGES_LINK_BANNER-->
+
 An Android app and web service that uses AI to reorder adjectives and adverbs according to the "Royal Order" of English grammar.
 
 ## Versions
