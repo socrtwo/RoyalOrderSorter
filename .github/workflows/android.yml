@@ -73,8 +73,140 @@ jobs:
         name: RoyalOrderSorter-release
         path: artifacts/RoyalOrderSorter-release*.apk
 
+  package-web-bundles:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Package Web bundle
+      run: |
+        mkdir -p bundles pkg-web
+        cp web/RoyalOrderSorter.html pkg-web/
+        cp web/RoyalOrderSorter.html pkg-web/index.html
+        printf '%s\n' \
+          '# Royal Order Sorter — Web' \
+          '' \
+          '## Run locally' \
+          '' \
+          'Unzip this archive and open `RoyalOrderSorter.html` in any modern browser.' \
+          '' \
+          '## Self-host' \
+          '' \
+          'Copy the contents of this archive to any static web server.' \
+          '`index.html` is a copy of the app so it loads at the directory root.' \
+          '' \
+          'Note: an internet connection is required the first time you use the app' \
+          'so it can download the AI model (~30MB).' \
+          > pkg-web/INSTALL.md
+        cd pkg-web && zip -r ../bundles/RoyalOrderSorter-web.zip . && cd -
+
+    - name: Package Windows bundle
+      run: |
+        mkdir -p pkg-windows
+        cp web/RoyalOrderSorter.html pkg-windows/
+        printf '%s\n' \
+          '# Royal Order Sorter on Windows' \
+          '' \
+          '1. Unzip this archive.' \
+          '2. Double-click `RoyalOrderSorter.html` to open it in your browser' \
+          '   (Edge, Chrome, or Firefox).' \
+          '3. Optional: right-click the file and choose Send to > Desktop' \
+          '   (create shortcut) for one-click access.' \
+          '' \
+          'Note: an internet connection is required the first time you use the app' \
+          'so it can download the AI model (~30MB).' \
+          > pkg-windows/INSTALL.md
+        cd pkg-windows && zip -r ../bundles/RoyalOrderSorter-windows.zip . && cd -
+
+    - name: Package macOS bundle
+      run: |
+        mkdir -p pkg-macos
+        cp web/RoyalOrderSorter.html pkg-macos/
+        printf '%s\n' \
+          '# Royal Order Sorter on macOS' \
+          '' \
+          '1. Unzip this archive.' \
+          '2. Double-click `RoyalOrderSorter.html` to open it in Safari' \
+          '   (or drag it onto Chrome / Firefox).' \
+          '3. Optional: make an alias (File > Make Alias) and keep it on your' \
+          '   Desktop or in the Dock for one-click access.' \
+          '' \
+          'Note: an internet connection is required the first time you use the app' \
+          'so it can download the AI model (~30MB).' \
+          > pkg-macos/INSTALL.md
+        cd pkg-macos && zip -r ../bundles/RoyalOrderSorter-macos.zip . && cd -
+
+    - name: Package Linux bundle
+      run: |
+        mkdir -p pkg-linux
+        cp web/RoyalOrderSorter.html pkg-linux/
+        printf '%s\n' \
+          '# Royal Order Sorter on Linux' \
+          '' \
+          '1. Unzip this archive.' \
+          '2. Open `RoyalOrderSorter.html` in your browser, e.g.:' \
+          '' \
+          '       xdg-open RoyalOrderSorter.html' \
+          '' \
+          '3. Optional: create a .desktop launcher pointing at the file for' \
+          '   one-click access.' \
+          '' \
+          'Note: an internet connection is required the first time you use the app' \
+          'so it can download the AI model (~30MB).' \
+          > pkg-linux/INSTALL.md
+        cd pkg-linux && zip -r ../bundles/RoyalOrderSorter-linux.zip . && cd -
+
+    - name: Package ChromeOS bundle
+      run: |
+        mkdir -p pkg-chromeos
+        cp web/RoyalOrderSorter.html pkg-chromeos/
+        printf '%s\n' \
+          '# Royal Order Sorter on ChromeOS' \
+          '' \
+          '## Recommended: install the hosted app' \
+          '' \
+          '1. Open https://socrtwo.github.io/RoyalOrderSorter/RoyalOrderSorter.html in Chrome.' \
+          '2. Click the Install icon in the address bar (right-hand side)' \
+          '   to add the app to your launcher.' \
+          '' \
+          '## Alternative' \
+          '' \
+          'Unzip this archive and open `RoyalOrderSorter.html` in Chrome.' \
+          '' \
+          'Note: an internet connection is required the first time you use the app' \
+          'so it can download the AI model (~30MB).' \
+          > pkg-chromeos/INSTALL.md
+        cd pkg-chromeos && zip -r ../bundles/RoyalOrderSorter-chromeos.zip . && cd -
+
+    - name: Package iOS bundle
+      run: |
+        mkdir -p pkg-ios
+        cp web/RoyalOrderSorter.html pkg-ios/
+        printf '%s\n' \
+          '# Royal Order Sorter on iOS / iPadOS' \
+          '' \
+          '## Add the hosted app to your Home Screen' \
+          '' \
+          '1. Open https://socrtwo.github.io/RoyalOrderSorter/RoyalOrderSorter.html in Safari.' \
+          '2. Tap the Share button.' \
+          '3. Tap "Add to Home Screen", then "Add".' \
+          '4. Launch Royal Order Sorter from the Home Screen icon like a native app.' \
+          '' \
+          'Note: an internet connection is required the first time you use the app' \
+          'so it can download the AI model (~30MB).' \
+          > pkg-ios/INSTALL.md
+        cd pkg-ios && zip -r ../bundles/RoyalOrderSorter-ios.zip . && cd -
+
+    - name: Upload platform bundles
+      uses: actions/upload-artifact@v4
+      with:
+        name: RoyalOrderSorter-web-bundles
+        path: bundles/RoyalOrderSorter-*.zip
+
   release:
-    needs: build
+    needs: [build, package-web-bundles]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     
@@ -96,15 +228,22 @@ jobs:
         files: |
           artifacts/RoyalOrderSorter-debug/RoyalOrderSorter-debug.apk
           artifacts/RoyalOrderSorter-release/RoyalOrderSorter-release*.apk
+          artifacts/RoyalOrderSorter-web-bundles/RoyalOrderSorter-*.zip
           web/RoyalOrderSorter.html
         body: |
           ## Royal Order Sorter ${{ github.ref_name }}
           
           ### Downloads
-          - **RoyalOrderSorter-debug.apk** - Debug build (for testing)
-          - **RoyalOrderSorter-release.apk** - Release build (signed)
-          - **RoyalOrderSorter.html** - Web version (open in any browser)
-          
+          - **RoyalOrderSorter-debug.apk** - Android debug build (for testing)
+          - **RoyalOrderSorter-release.apk** - Android release build (signed)
+          - **RoyalOrderSorter-web.zip** - Web version (open locally or self-host; see INSTALL.md)
+          - **RoyalOrderSorter-windows.zip** - Windows (web app + install instructions)
+          - **RoyalOrderSorter-macos.zip** - macOS (web app + install instructions)
+          - **RoyalOrderSorter-linux.zip** - Linux (web app + install instructions)
+          - **RoyalOrderSorter-chromeos.zip** - ChromeOS (install the hosted app from Chrome; see INSTALL.md)
+          - **RoyalOrderSorter-ios.zip** - iOS/iPadOS (Safari → Share → Add to Home Screen; see INSTALL.md)
+          - **RoyalOrderSorter.html** - Bare web app (open in any browser)
+
           ### Installation
           1. Download the APK file
           2. Enable "Install from unknown sources" in Android settings
