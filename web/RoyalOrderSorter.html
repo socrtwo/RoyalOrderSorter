@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Royal Order Sorter (AI Only)</title>
+    <title>Royal Order Sorter</title>
     
     <script src="https://unpkg.com/compromise"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
@@ -56,6 +56,13 @@
         footer { margin-top: 40px; padding-top: 20px; border-top: 1px solid #ddd; text-align: center; font-size: 0.9em; color: #7f8c8d; }
         footer a { color: #3498db; text-decoration: none; font-weight: bold; }
 
+        /* Mode Toggle */
+        .mode-toggle { display: flex; gap: 0; margin-bottom: 15px; border-radius: 4px; overflow: hidden; border: 2px solid #3498db; width: fit-content; }
+        .mode-toggle button { padding: 8px 18px; border: none; cursor: pointer; font-size: 14px; font-weight: bold; background: white; color: #3498db; transition: background 0.2s, color 0.2s; }
+        .mode-toggle button.active { background: #3498db; color: white; }
+        .mode-toggle button:hover:not(.active) { background: #ebf5fb; }
+        .mode-desc { font-size: 0.85em; color: #7f8c8d; margin-bottom: 10px; }
+
         /* Modal */
         .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); backdrop-filter: blur(2px); overflow: auto; }
         .modal-content { background-color: #fefefe; margin: 5% auto; padding: 20px 40px; border: 1px solid #888; border-radius: 8px; width: 80%; max-width: 800px; }
@@ -82,11 +89,16 @@
 
     <div class="card">
         <h2>1. Enter Text</h2>
-        <p>Enter your sentences. The AI will detect adjectives/adverbs and their types automatically.</p>
+        <p>Enter your sentences, then choose a categorization mode below.</p>
+        <div class="mode-toggle">
+            <button id="modeManual" class="active" onclick="setMode('manual')">Manual (Word Lists)</button>
+            <button id="modeAI" onclick="setMode('ai')">AI-Aided</button>
+        </div>
+        <div id="modeDescription" class="mode-desc">Manual mode uses large precategorized word lists to identify adjective and adverb subcategories. No AI download required.</div>
         <textarea id="inputString" placeholder="Example:
 She refused to wear the leather pink new small ugly boots.
 He drove his German blue fast car often."></textarea>
-        <button id="analyzeBtn" class="action-btn" onclick="analyzeInput()" disabled>Loading AI...</button>
+        <button id="analyzeBtn" class="action-btn" onclick="analyzeInput()">Analyze Text</button>
     </div>
 
     <div class="card" id="stagingSection" style="display:none;">
@@ -219,20 +231,367 @@ He drove his German blue fast car often."></textarea>
     // ==========================================
     // 1. CONFIGURATION & CATEGORIES
     // ==========================================
-    
+
     const CATEGORIES = [
-        "Opinion", "Size", "Physical Quality", "Age", "Shape", "Color", 
-        "Origin", "Material", "Purpose", "Uncategorized", 
+        "Opinion", "Size", "Physical Quality", "Age", "Shape", "Color",
+        "Origin", "Material", "Purpose", "Uncategorized",
         "Adverb: Manner", "Adverb: Place", "Adverb: Frequency", "Adverb: Time", "Adverb: Purpose",
         "Verb", "Noun", "Other parts of speech"
     ];
 
     window.aiReady = false;
+    window.currentMode = 'manual'; // default to manual
 
     // ==========================================
-    // 2. AI DEFINITIONS (Anchors for Cosine Sim)
+    // 2. FUNCTION WORDS (always "Other parts of speech")
     // ==========================================
-    
+
+    const FUNCTION_WORDS = new Set([
+        // Pronouns
+        "i", "me", "my", "mine", "myself",
+        "you", "your", "yours", "yourself", "yourselves",
+        "he", "him", "his", "himself",
+        "she", "her", "hers", "herself",
+        "it", "its", "itself",
+        "we", "us", "our", "ours", "ourselves",
+        "they", "them", "their", "theirs", "themselves",
+        "who", "whom", "whose", "which", "what", "that",
+        "this", "these", "those",
+        "anybody", "anyone", "anything", "each", "either", "everybody",
+        "everyone", "everything", "neither", "nobody", "nothing",
+        "one", "somebody", "someone", "something", "both", "few",
+        "many", "several", "all", "any", "most", "none", "some",
+        // Determiners / Articles
+        "a", "an", "the",
+        "every", "no", "other", "another", "such", "quite",
+        // Prepositions
+        "about", "above", "across", "after", "against", "along", "among",
+        "around", "at", "before", "behind", "below", "beneath", "beside",
+        "besides", "between", "beyond", "but", "by", "concerning", "despite",
+        "down", "during", "except", "for", "from", "in", "inside", "into",
+        "like", "near", "of", "off", "on", "onto", "out", "outside",
+        "over", "past", "regarding", "since", "through", "throughout",
+        "till", "to", "toward", "towards", "under", "underneath", "until",
+        "up", "upon", "with", "within", "without",
+        // Conjunctions
+        "and", "or", "nor", "but", "yet", "so", "for",
+        "although", "because", "if", "unless", "while", "whereas",
+        "whether", "though", "than", "as", "once", "when", "where",
+        "wherever", "whenever", "however", "therefore", "moreover",
+        "furthermore", "nevertheless", "nonetheless", "meanwhile",
+        // Particles / Auxiliaries / Modals
+        "not", "n't", "no",
+        "is", "am", "are", "was", "were", "be", "been", "being",
+        "have", "has", "had", "having",
+        "do", "does", "did",
+        "will", "would", "shall", "should", "may", "might", "can",
+        "could", "must", "need", "dare", "ought",
+        // Common function adverbs (not real descriptive adverbs)
+        "too", "very", "also", "just", "only", "even", "still",
+        "already", "enough", "rather", "quite",
+        // Interjections / Discourse markers
+        "oh", "well", "please", "yes", "no", "okay", "ok",
+        // Infinitive marker
+        "to"
+    ]);
+
+    // ==========================================
+    // 3. MANUAL MODE: PRECATEGORIZED WORD LISTS
+    // ==========================================
+
+    const MANUAL_ADJECTIVES = {
+        "Opinion": [
+            "adorable", "amazing", "attractive", "awful", "bad", "beautiful", "boring",
+            "brilliant", "charming", "cheerful", "clever", "comfortable", "confusing",
+            "cool", "cruel", "cute", "dangerous", "delicious", "delightful", "depressing",
+            "difficult", "disgusting", "dreadful", "dull", "elegant", "embarrassing",
+            "enjoyable", "evil", "excellent", "exciting", "expensive", "fabulous",
+            "fair", "faithful", "famous", "fancy", "fantastic", "favorite", "favourite",
+            "fearful", "fine", "foolish", "friendly", "frightening", "fun", "funny",
+            "generous", "gentle", "glorious", "good", "gorgeous", "graceful", "great",
+            "handsome", "happy", "helpful", "hideous", "honest", "horrible", "horrid",
+            "important", "impossible", "impressive", "incredible", "innocent",
+            "intelligent", "interesting", "jolly", "kind", "likeable", "lively",
+            "lonely", "lousy", "lovely", "lucky", "magnificent", "marvelous",
+            "marvellous", "mean", "miserable", "mysterious", "nasty", "naughty",
+            "neat", "nice", "noble", "odd", "outstanding", "perfect", "plain",
+            "pleasant", "poor", "powerful", "precious", "pretty", "proper",
+            "proud", "ridiculous", "rotten", "rude", "scary", "serious", "silly",
+            "splendid", "strange", "stupid", "superb", "sweet", "terrible",
+            "terrific", "thankful", "thoughtful", "ugly", "unpleasant", "unusual",
+            "upset", "useful", "useless", "valuable", "vile", "wicked", "wonderful",
+            "worthy", "wrong"
+        ],
+        "Size": [
+            "big", "colossal", "diminutive", "enormous", "fat", "giant", "gigantic",
+            "great", "huge", "humongous", "immense", "large", "lean", "little",
+            "long", "mammoth", "massive", "medium", "microscopic", "miniature",
+            "minuscule", "minute", "narrow", "petite", "plump", "puny", "scrawny",
+            "short", "skinny", "slim", "slender", "small", "squat", "stocky",
+            "stout", "stubby", "tall", "teeny", "thick", "thin", "tiny",
+            "towering", "vast", "voluminous", "wee", "wide", "compact", "broad",
+            "bulky", "chunky", "cramped", "expansive", "hefty", "lanky", "meager",
+            "meagre", "modest", "ample", "considerable", "oversized", "undersized",
+            "spacious", "portable", "measly", "sizable", "sizeable", "substantial"
+        ],
+        "Physical Quality": [
+            "bald", "blunt", "bouncy", "breakable", "bright", "bumpy", "chilly",
+            "clean", "clear", "cold", "cool", "crisp", "crooked", "crunchy",
+            "curly", "damaged", "damp", "dark", "dead", "deep", "dense", "dim",
+            "dirty", "doughy", "dry", "dull", "dusty", "faint", "fast", "firm",
+            "flaky", "flat", "fluffy", "fragile", "freezing", "fresh", "fuzzy",
+            "gentle", "gooey", "grainy", "greasy", "gritty", "gross", "hard",
+            "harsh", "healthy", "heavy", "hollow", "hot", "icy", "juicy", "lean",
+            "light", "limp", "loud", "lukewarm", "lumpy", "matte", "mild", "moist",
+            "muddy", "muffled", "mushy", "noisy", "numb", "oily", "opaque",
+            "peppery", "plain", "polished", "prickly", "puffy", "quiet", "raw",
+            "rigid", "rough", "rubbery", "rusty", "salty", "scratchy", "sharp",
+            "sheer", "shiny", "silky", "slimy", "slippery", "slow", "smooth",
+            "soapy", "sodden", "soft", "soggy", "solid", "sour", "spicy",
+            "spongy", "stale", "steady", "sticky", "stiff", "strong", "sturdy",
+            "sweet", "tangy", "tart", "tender", "tepid", "thick", "thin", "tight",
+            "tough", "transparent", "velvety", "warm", "waxy", "weak", "wet",
+            "woolly", "bumpy", "coarse", "crumbly", "feathery", "filthy", "floppy",
+            "glossy", "gummy", "hairy", "powdery", "ragged", "sandy", "scaly",
+            "sleek", "squishy", "wiry"
+        ],
+        "Age": [
+            "ancient", "annual", "antique", "archaic", "brand-new", "contemporary",
+            "current", "elderly", "fresh", "futuristic", "immature", "infant",
+            "juvenile", "mature", "medieval", "modern", "new", "newborn",
+            "obsolete", "old", "outdated", "prehistoric", "primitive", "recent",
+            "seasoned", "senior", "stale", "vintage", "worn", "young", "youthful",
+            "adolescent", "aged", "bygone", "centenarian", "decrepit", "fledgling",
+            "geriatric", "infantile", "latest", "newfangled", "novel", "olden",
+            "original", "past", "pristine", "retro", "revolutionary", "timeless",
+            "traditional", "unaged", "updated", "used", "venerable", "weathered"
+        ],
+        "Shape": [
+            "angular", "arched", "asymmetrical", "boxy", "broad", "circular",
+            "conical", "convex", "concave", "contorted", "crooked", "cross-shaped",
+            "cubic", "curved", "cylindrical", "diagonal", "diamond", "distorted",
+            "dome-shaped", "elongated", "flat", "globular", "heart-shaped",
+            "hexagonal", "hollow", "hooked", "jagged", "linear", "lopsided",
+            "lumpy", "narrow", "oblong", "octagonal", "oval", "pentagonal",
+            "pointed", "polygonal", "pyramidal", "rectangular", "ring-shaped",
+            "rotund", "round", "rounded", "serpentine", "sinuous", "spherical",
+            "spiral", "square", "star-shaped", "steep", "straight", "streamlined",
+            "symmetrical", "tapered", "trapezoid", "triangular", "tubular",
+            "twisted", "V-shaped", "wavy", "wedge-shaped", "wide", "winding",
+            "zigzag"
+        ],
+        "Color": [
+            "amber", "aqua", "aquamarine", "azure", "beige", "black", "blonde",
+            "blue", "bronze", "brown", "burgundy", "caramel", "carmine", "cerulean",
+            "champagne", "charcoal", "chartreuse", "chestnut", "chocolate",
+            "cinnamon", "cobalt", "copper", "coral", "cream", "crimson", "cyan",
+            "dark", "drab", "ebony", "ecru", "emerald", "fuchsia", "gilt", "gold",
+            "golden", "gray", "green", "grey", "hazel", "honey", "indigo", "ivory",
+            "jade", "jet", "khaki", "lavender", "lemon", "light", "lilac", "lime",
+            "magenta", "mahogany", "maroon", "mauve", "midnight", "mint", "mocha",
+            "moss", "mulberry", "mustard", "navy", "nude", "ochre", "olive",
+            "opal", "orange", "orchid", "pale", "pastel", "peach", "pearl",
+            "periwinkle", "pink", "platinum", "plum", "powder", "primrose",
+            "puce", "purple", "raspberry", "red", "rose", "rosy", "ruby",
+            "russet", "rust", "sable", "saffron", "sage", "salmon", "sand",
+            "sapphire", "scarlet", "sepia", "sienna", "silver", "slate", "smoky",
+            "snowy", "tan", "tangerine", "taupe", "tawny", "teal", "terracotta",
+            "topaz", "turquoise", "ultramarine", "umber", "vanilla", "vermilion",
+            "violet", "viridian", "white", "wine", "yellow"
+        ],
+        "Origin": [
+            "african", "alpine", "amazonian", "american", "antarctic", "arab",
+            "arctic", "argentinian", "asian", "atlantic", "australian", "austrian",
+            "balinese", "bavarian", "belgian", "bohemian", "brazilian", "british",
+            "buddhist", "cajun", "californian", "canadian", "caribbean", "catholic",
+            "celtic", "central", "chinese", "christian", "coastal", "colonial",
+            "continental", "creole", "cuban", "czech", "danish", "desert", "domestic",
+            "dutch", "eastern", "ecuadorian", "egyptian", "english", "ethiopian",
+            "european", "exotic", "federal", "finnish", "flemish", "florentine",
+            "foreign", "french", "gallic", "german", "global", "gothic", "greek",
+            "hawaiian", "himalayan", "hindu", "hispanic", "hungarian", "icelandic",
+            "indian", "indigenous", "indonesian", "inland", "iranian", "iraqi",
+            "irish", "islamic", "israeli", "italian", "jamaican", "japanese",
+            "jewish", "korean", "latin", "local", "lunar", "martian", "mayan",
+            "mediterranean", "mexican", "mongolian", "moorish", "moroccan",
+            "municipal", "national", "native", "neapolitan", "nordic",
+            "northern", "norwegian", "oceanic", "oriental", "pacific", "pakistani",
+            "papal", "parisian", "persian", "peruvian", "philippine", "polish",
+            "polynesian", "portuguese", "provincial", "regional", "roman",
+            "romanian", "rural", "russian", "saharan", "scandinavian", "scottish",
+            "siberian", "sicilian", "slavic", "solar", "south", "southern",
+            "spanish", "suburban", "swedish", "swiss", "texan", "thai",
+            "tibetan", "tropical", "tunisian", "turkish", "tuscan", "urban",
+            "venetian", "victorian", "vietnamese", "viking", "welsh", "western"
+        ],
+        "Material": [
+            "aluminum", "aluminium", "bamboo", "bone", "brass", "brick", "bronze",
+            "burlap", "canvas", "cardboard", "cast-iron", "cedar", "cement",
+            "ceramic", "chalk", "chrome", "clay", "concrete", "copper", "cork",
+            "cotton", "crystal", "denim", "diamond", "earthen", "elastic", "enamel",
+            "fabric", "felt", "fiberglass", "flannel", "fleece", "flint", "foam",
+            "fur", "glass", "gold", "golden", "gossamer", "granite", "gravel",
+            "iron", "jade", "jute", "knit", "lace", "latex", "lead", "leather",
+            "linen", "mahogany", "maple", "marble", "mesh", "metal", "metallic",
+            "mineral", "muslin", "neoprene", "net", "nickel", "nylon", "oak",
+            "onyx", "organic", "paper", "pearl", "pebble", "pewter", "pine",
+            "plaster", "plastic", "platinum", "plywood", "polyester", "porcelain",
+            "quartz", "rawhide", "rayon", "resin", "rope", "rubber", "satin",
+            "silk", "silken", "silver", "slate", "stainless", "steel", "stone",
+            "stoneware", "straw", "suede", "synthetic", "taffeta", "teak",
+            "terracotta", "tin", "titanium", "tulle", "tweed", "velvet", "vinyl",
+            "walnut", "wax", "wicker", "wood", "wooden", "wool", "woolen",
+            "woollen", "wrought-iron", "zinc"
+        ],
+        "Purpose": [
+            "baking", "bathing", "bowling", "braking", "building", "camping",
+            "carving", "chopping", "cleaning", "climbing", "cooking", "cooling",
+            "crossing", "cutting", "dancing", "dining", "drawing", "drinking",
+            "driving", "eating", "exercise", "farming", "feeding", "fighting",
+            "filing", "fishing", "flying", "folding", "frying", "gaming",
+            "gardening", "grinding", "guard", "guarding", "hammering", "heating",
+            "helping", "hiking", "holding", "hunting", "ironing", "jogging",
+            "knitting", "landing", "lifting", "living", "loading", "locking",
+            "measuring", "meeting", "mining", "mixing", "moving", "nursing",
+            "opening", "operating", "packaging", "packing", "painting", "parking",
+            "playing", "plowing", "plumbing", "polishing", "printing", "pumping",
+            "pushing", "racing", "reading", "recording", "riding", "roasting",
+            "rowing", "running", "sailing", "sanding", "sawing", "scrubbing",
+            "sealing", "serving", "sewing", "shaving", "shipping", "shopping",
+            "skating", "skiing", "sleeping", "slicing", "smoking", "sorting",
+            "spinning", "sporting", "spraying", "stacking", "steering", "stitching",
+            "storage", "surfing", "sweeping", "swimming", "teaching", "testing",
+            "throwing", "towing", "tracking", "trading", "training", "traveling",
+            "typing", "walking", "warning", "washing", "watering", "wedding",
+            "welding", "working", "wrestling", "writing"
+        ]
+    };
+
+    const MANUAL_ADVERBS = {
+        "Adverb: Manner": [
+            "abruptly", "absently", "accidentally", "acidly", "admiringly",
+            "adoringly", "aggressively", "aimlessly", "alertly", "angrily",
+            "anxiously", "arrogantly", "attentively", "awkwardly", "badly",
+            "bashfully", "beautifully", "bitterly", "bleakly", "blindly",
+            "blissfully", "boastfully", "boldly", "bravely", "breathlessly",
+            "briefly", "brightly", "briskly", "broadly", "busily",
+            "calmly", "carefully", "carelessly", "cautiously", "cheerfully",
+            "cleanly", "clearly", "cleverly", "closely", "clumsily",
+            "coaxingly", "coldly", "comfortably", "confusedly", "correctly",
+            "courageously", "crossly", "cruelly", "curiously", "daintily",
+            "daringly", "deeply", "deliberately", "delicately", "delightfully",
+            "desperately", "diligently", "doubtfully", "dreamily", "eagerly",
+            "easily", "effectively", "efficiently", "effortlessly", "elegantly",
+            "eloquently", "energetically", "enormously", "enthusiastically",
+            "equally", "evenly", "exactly", "excitedly", "expertly",
+            "extremely", "fairly", "faithfully", "famously", "fast",
+            "fatally", "ferociously", "fervently", "fiercely", "firmly",
+            "fluently", "fondly", "foolishly", "forcefully", "formally",
+            "fortunately", "frankly", "frantically", "freely", "frenetically",
+            "frightfully", "fully", "furiously", "gaily", "generously",
+            "gently", "gladly", "gleefully", "gracefully", "gratefully",
+            "greedily", "grimly", "grudgingly", "happily", "hard",
+            "harshly", "hastily", "heartily", "heavily", "helpfully",
+            "helplessly", "honestly", "hopelessly", "humbly", "hungrily",
+            "hurriedly", "immediately", "impatiently", "incessantly", "incorrectly",
+            "independently", "innocently", "inquisitively", "instantly", "intensely",
+            "intently", "irritably", "jaggedly", "jokingly", "joyfully",
+            "joyously", "jubilantly", "justly", "keenly", "kiddingly",
+            "kindly", "knowingly", "lazily", "lightly", "limply",
+            "lively", "longingly", "loosely", "loudly", "lovingly",
+            "loyally", "madly", "majestically", "meanly", "mechanically",
+            "merrily", "miserably", "mockingly", "modestly", "mortally",
+            "mysteriously", "naturally", "neatly", "nervously", "nicely",
+            "noisily", "obediently", "oddly", "offensively", "officially",
+            "openly", "optimistically", "overconfidently", "painfully", "patiently",
+            "perfectly", "playfully", "politely", "poorly", "positively",
+            "potentially", "powerfully", "precisely", "promptly", "properly",
+            "proudly", "punctually", "quaintly", "quarrelsomely", "queerly",
+            "questioningly", "quicker", "quickly", "quietly", "quizzically",
+            "rapidly", "reassuringly", "recklessly", "reluctantly", "repeatedly",
+            "reproachfully", "restfully", "righteously", "rightfully", "rigidly",
+            "roughly", "rudely", "ruthlessly", "sadly", "safely",
+            "scarcely", "searchingly", "sedately", "seemingly", "selfishly",
+            "separately", "seriously", "shakily", "sharply", "sheepishly",
+            "shrilly", "shyly", "silently", "sleepily", "slowly",
+            "smoothly", "softly", "solemnly", "solidly", "speedily",
+            "stealthily", "sternly", "strictly", "stubbornly", "successfully",
+            "suddenly", "surprisingly", "suspiciously", "sweetly", "swiftly",
+            "sympathetically", "tenderly", "tensely", "terribly", "thankfully",
+            "thoroughly", "thoughtfully", "tightly", "tremendously", "triumphantly",
+            "truthfully", "ultimately", "unabashedly", "uncertainly", "unexpectedly",
+            "unfortunately", "unhappily", "unimpressively", "unnaturally", "urgently",
+            "uselessly", "utterly", "vacantly", "vaguely", "vainly",
+            "valiantly", "vastly", "verbally", "victoriously", "violently",
+            "vivaciously", "voluntarily", "warmly", "weakly", "wearily",
+            "well", "wetly", "wholly", "wickedly", "wildly",
+            "willfully", "wisely", "woefully", "wonderfully", "worriedly",
+            "wrongly", "yawningly", "yearningly", "zealously", "zestfully"
+        ],
+        "Adverb: Place": [
+            "aboard", "above", "abroad", "across", "ahead",
+            "alongside", "anywhere", "around", "away", "back",
+            "backward", "backwards", "behind", "below", "beneath",
+            "beside", "beyond", "close", "down", "downhill",
+            "downstairs", "downtown", "east", "elsewhere", "everywhere",
+            "far", "forth", "forward", "forwards", "here",
+            "hereabouts", "home", "in", "indoors", "inshore",
+            "inside", "locally", "nearby", "north", "northward",
+            "nowhere", "off", "offshore", "on", "onshore",
+            "out", "outdoors", "outside", "over", "overhead",
+            "overland", "overseas", "sideways", "skyward", "somewhere",
+            "south", "southward", "there", "together", "towards",
+            "under", "underground", "underneath", "underfoot", "up",
+            "uphill", "upstairs", "uptown", "upward", "upwards",
+            "west", "westward", "wherever", "within", "yonder"
+        ],
+        "Adverb: Frequency": [
+            "again", "always", "annually", "biweekly", "constantly",
+            "continuously", "daily", "ever", "fortnightly", "frequently",
+            "generally", "habitually", "hourly", "infrequently", "intermittently",
+            "monthly", "nightly", "normally", "occasionally", "often",
+            "once", "periodically", "perpetually", "quarterly", "rarely",
+            "recurrently", "regularly", "repeatedly", "scarcely", "seldom",
+            "sometimes", "sporadically", "typically", "uncommonly", "usually",
+            "weekly", "yearly"
+        ],
+        "Adverb: Time": [
+            "after", "afterwards", "ago", "already", "before",
+            "beforehand", "early", "eventually", "finally", "first",
+            "formerly", "henceforth", "immediately", "initially", "instantly",
+            "just", "last", "late", "lately", "later",
+            "meanwhile", "momentarily", "next", "now", "nowadays",
+            "once", "originally", "presently", "previously", "promptly",
+            "recently", "shortly", "since", "soon", "still",
+            "subsequently", "then", "thereafter", "today", "tomorrow",
+            "tonight", "ultimately", "yesterday", "yet"
+        ],
+        "Adverb: Purpose": [
+            "accidentally", "consequently", "deliberately", "expressly",
+            "incidentally", "intentionally", "knowingly", "personally",
+            "purposefully", "purposely", "specially", "specifically",
+            "thereby", "thus", "voluntarily", "willfully", "willingly"
+        ]
+    };
+
+    // Build lookup maps for manual mode
+    const MANUAL_ADJ_LOOKUP = {};
+    for (const [cat, words] of Object.entries(MANUAL_ADJECTIVES)) {
+        for (const w of words) {
+            MANUAL_ADJ_LOOKUP[w.toLowerCase()] = cat;
+        }
+    }
+    const MANUAL_ADV_LOOKUP = {};
+    for (const [cat, words] of Object.entries(MANUAL_ADVERBS)) {
+        for (const w of words) {
+            MANUAL_ADV_LOOKUP[w.toLowerCase()] = cat;
+        }
+    }
+
+    // ==========================================
+    // 4. AI DEFINITIONS (Anchors for Cosine Sim)
+    // ==========================================
+
     window.AI_DEFINITIONS = {
         "Opinion": "beautiful lovely ugly amazing nice bad good terrible strange funny excellent",
         "Size": "big small tiny huge large little enormous short tall giant microscopic",
@@ -251,7 +610,30 @@ He drove his German blue fast car often."></textarea>
     };
 
     // ==========================================
-    // 3. MAIN LOGIC
+    // 5. MODE TOGGLE
+    // ==========================================
+
+    function setMode(mode) {
+        window.currentMode = mode;
+        document.getElementById('modeManual').classList.toggle('active', mode === 'manual');
+        document.getElementById('modeAI').classList.toggle('active', mode === 'ai');
+        const desc = document.getElementById('modeDescription');
+        const btn = document.getElementById('analyzeBtn');
+        if (mode === 'manual') {
+            desc.textContent = "Manual mode uses large precategorized word lists to identify adjective and adverb subcategories. No AI download required.";
+            btn.disabled = false;
+            btn.innerText = "Analyze Text";
+        } else {
+            desc.textContent = "AI-aided mode uses a neural network (Transformers.js) for semantic categorization. Requires a ~30MB model download on first use.";
+            if (!window.aiReady) {
+                btn.disabled = true;
+                btn.innerText = "Loading AI...";
+            }
+        }
+    }
+
+    // ==========================================
+    // 6. MAIN LOGIC
     // ==========================================
 
     function cosineSimilarity(vecA, vecB) {
@@ -264,10 +646,52 @@ He drove his German blue fast car often."></textarea>
         return dot / (Math.sqrt(normA) * Math.sqrt(normB));
     }
 
+    function isFunctionWord(word, tags) {
+        const lower = word.toLowerCase().replace(/['']/g, "'");
+        if (FUNCTION_WORDS.has(lower)) return true;
+        // Also check Compromise POS tags for function word categories
+        const fnTags = ["Determiner", "Conjunction", "Preposition", "Pronoun",
+                        "QuestionWord", "Reflexive", "Possessive", "Article",
+                        "Auxiliary", "Modal", "Negative", "Particle",
+                        "Copula", "Infinitive"];
+        for (const tag of fnTags) {
+            if (tags.includes(tag)) return true;
+        }
+        return false;
+    }
+
+    function classifyManual(word, tags) {
+        const lower = word.toLowerCase();
+        // Check adjective lists
+        if (MANUAL_ADJ_LOOKUP[lower]) {
+            return { category: MANUAL_ADJ_LOOKUP[lower], source: "List (Adj)" };
+        }
+        // Check adverb lists
+        if (MANUAL_ADV_LOOKUP[lower]) {
+            return { category: MANUAL_ADV_LOOKUP[lower], source: "List (Adv)" };
+        }
+        // Fall back to Compromise POS tags for Noun/Verb
+        if (tags.includes("Adjective")) {
+            return { category: "Uncategorized", source: "NLP (Adj)" };
+        }
+        if (tags.includes("Adverb")) {
+            return { category: "Uncategorized", source: "NLP (Adv)" };
+        }
+        if (tags.includes("Noun")) {
+            return { category: "Noun", source: "NLP (POS)" };
+        }
+        if (tags.includes("Verb")) {
+            return { category: "Verb", source: "NLP (POS)" };
+        }
+        return { category: "Other parts of speech", source: "Default" };
+    }
+
     async function analyzeInput() {
         const text = document.getElementById('inputString').value;
         if (!text.trim()) return;
-        if (!window.aiReady) return alert("AI is still loading. Please wait...");
+
+        const mode = window.currentMode;
+        if (mode === 'ai' && !window.aiReady) return alert("AI is still loading. Please wait...");
 
         const stagingArea = document.getElementById('stagingArea');
         stagingArea.innerHTML = "";
@@ -284,7 +708,7 @@ He drove his German blue fast car often."></textarea>
 
         for (let idx = 0; idx < sentences.length; idx++) {
             let sentText = sentences[idx];
-            
+
             // 1. NLP Tokenize
             let doc = nlp(sentText);
             let terms = doc.json()[0].terms;
@@ -298,9 +722,12 @@ He drove his German blue fast car often."></textarea>
             let container = document.createElement('div');
             container.className = "word-container";
 
-            // 3. AI Calculation
-            const wordList = terms.map(t => t.normal); // normalize string
-            let wordVectors = await window.getEmbeddings(wordList);
+            // 3. AI Calculation (only in AI mode)
+            let wordVectors = null;
+            if (mode === 'ai') {
+                const wordList = terms.map(t => t.normal);
+                wordVectors = await window.getEmbeddings(wordList);
+            }
 
             // 4. Process Terms
             for (let i = 0; i < terms.length; i++) {
@@ -309,28 +736,36 @@ He drove his German blue fast car often."></textarea>
                 let category = "Other parts of speech";
                 let source = "Default";
 
-                // --- AI LOGIC ---
-                // Hard constraints first (POS tags are reliable for clear Noun/Verb)
-                // We use Compromise's tags as a "guardrail" to prevent Verbs becoming Adjectives
-                if (term.tags.includes("Noun") && !term.tags.includes("Adjective")) {
-                    category = "Noun"; source = "NLP (POS)";
-                } else if (term.tags.includes("Verb") && !term.tags.includes("Adjective")) {
-                    category = "Verb"; source = "NLP (POS)";
-                } else if (wordVectors && window.categoryEmbeddings) {
-                    // It's likely an Adjective or Adverb, let's vector match it
-                    const vec = wordVectors[i];
-                    let maxScore = -1;
-                    let bestCat = "Uncategorized";
+                // --- FUNCTION WORD GUARD (applies to ALL modes) ---
+                if (isFunctionWord(term.normal || word, term.tags)) {
+                    category = "Other parts of speech";
+                    source = "Function";
+                } else if (mode === 'manual') {
+                    // --- MANUAL MODE: use precategorized word lists ---
+                    const result = classifyManual(term.normal || word, term.tags);
+                    category = result.category;
+                    source = result.source;
+                } else {
+                    // --- AI MODE ---
+                    if (term.tags.includes("Noun") && !term.tags.includes("Adjective")) {
+                        category = "Noun"; source = "NLP (POS)";
+                    } else if (term.tags.includes("Verb") && !term.tags.includes("Adjective")) {
+                        category = "Verb"; source = "NLP (POS)";
+                    } else if (wordVectors && window.categoryEmbeddings) {
+                        const vec = wordVectors[i];
+                        let maxScore = -1;
+                        let bestCat = "Uncategorized";
 
-                    for (const [catName, catVec] of Object.entries(window.categoryEmbeddings)) {
-                        const score = cosineSimilarity(vec, catVec);
-                        if (score > maxScore) {
-                            maxScore = score;
-                            bestCat = catName;
+                        for (const [catName, catVec] of Object.entries(window.categoryEmbeddings)) {
+                            const score = cosineSimilarity(vec, catVec);
+                            if (score > maxScore) {
+                                maxScore = score;
+                                bestCat = catName;
+                            }
                         }
+                        category = bestCat;
+                        source = `AI (${Math.round(maxScore*100)}%)`;
                     }
-                    category = bestCat;
-                    source = `AI (${Math.round(maxScore*100)}%)`;
                 }
 
                 // Render
@@ -360,11 +795,11 @@ He drove his German blue fast car often."></textarea>
                 row.appendChild(sel);
                 container.appendChild(row);
             }
-            
+
             block.appendChild(container);
             stagingArea.appendChild(block);
         }
-        
+
         btn.innerText = originalText;
         btn.disabled = false;
     }
@@ -388,7 +823,7 @@ He drove his German blue fast car often."></textarea>
             // Sort Hierarchy
             const getRank = (cat) => {
                 let idx = CATEGORIES.indexOf(cat);
-                if (cat === "Noun") return 99; 
+                if (cat === "Noun") return 99;
                 if (idx === -1) return 100;
                 return idx;
             };
@@ -427,12 +862,12 @@ He drove his German blue fast car often."></textarea>
     function styleRow(div, cat) {
         div.className = "word-row";
         div.classList.remove('is-adj', 'is-noun', 'is-verb', 'is-adv', 'is-other');
-        
+
         if (cat.includes("Adverb")) div.classList.add('is-adv');
         else if (cat === "Noun") div.classList.add('is-noun');
         else if (cat === "Verb") div.classList.add('is-verb');
         else if (cat === "Other parts of speech") div.classList.add('is-other');
-        else div.classList.add('is-adj'); 
+        else div.classList.add('is-adj');
     }
 
     function exportData(fmt) {
@@ -454,14 +889,14 @@ He drove his German blue fast car often."></textarea>
     }
 
     // Modal Handling
-    function openModal(id) { 
-        document.getElementById(id === 'info' ? 'infoModal' : 'licenseModal').style.display = "block"; 
+    function openModal(id) {
+        document.getElementById(id === 'info' ? 'infoModal' : 'licenseModal').style.display = "block";
     }
-    function closeModal(id) { 
-        document.getElementById(id === 'info' ? 'infoModal' : 'licenseModal').style.display = "none"; 
+    function closeModal(id) {
+        document.getElementById(id === 'info' ? 'infoModal' : 'licenseModal').style.display = "none";
     }
-    window.onclick = function(e) { 
-        if(e.target.classList.contains('modal')) e.target.style.display = "none"; 
+    window.onclick = function(e) {
+        if(e.target.classList.contains('modal')) e.target.style.display = "none";
     }
 
 </script>
